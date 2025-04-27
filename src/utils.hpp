@@ -29,7 +29,7 @@ vector<vector<F>> convert2matrix(vector<F> arr, int d1, int d2);
 vector<F> prepare_bit_vector(vector<F> num, int domain);
 vector<vector<F>> rotate(vector<vector<F>> M);
 void initBetaTable(vector<F> &beta_g, u8 gLength, const vector<F>::const_iterator &r, const F &init);
-
+F getRootofUnity(int logn);
 void
 initBetaTable(vector<F> &beta_g, int gLength, const vector<F>::const_iterator &r_0,
               const vector<F>::const_iterator &r_1, const F &alpha, const F &beta);
@@ -48,3 +48,4 @@ void clear_matrix(vector<vector<F>> &arr);
 void clear_tensor1(vector<vector<vector<F>>> &arr);
 void clear_tensor2(vector<vector<vector<vector<F>>>> &arr);
 void clear_tensor3(vector<vector<vector<vector<vector<F>>>>> &arr);
+vector<F> compute_lagrange_coeff(F omega, F r, int degree);

@@ -27,7 +27,7 @@ void field_to_int32(vector<unsigned int> &buff, F num1, F num2){
 }
 
 
-void query(int col, int row,  vector<vector<F>> &matrix, commitment mt, aggregation_witness &_data){
+void query(int col, int row,  vector<vector<F>> &matrix, commitment &mt, aggregation_witness &_data){
 
     vector<F> aux(4);
     __hhash_digest res;
@@ -429,7 +429,7 @@ aggregation_witness aggregate(vector<vector<vector<F>>> &encoded_matrixes, vecto
     
     int QUERIES;
     if(PC_scheme == 1){
-        QUERIES = 200;
+        QUERIES = 450;
     }else{
         QUERIES = 25;
     }
@@ -501,16 +501,31 @@ aggregation_witness aggregate(vector<vector<vector<F>>> &encoded_matrixes, vecto
     }
     end = clock();
     proving_time += (arity+1)*(double)(end-begin)/(double)CLOCKS_PER_SEC;
-    printf("aggr %lf, %lf\n",proving_time,(double)(end-begin)/(double)CLOCKS_PER_SEC);
     for(int j = 0; j < encoded_matrixes.size(); j++){
-        data.root.insert(data.root.end(),_data.root.begin(),_data.root.end());
-        data.root_sha.insert(data.root_sha.end(),_data.root_sha.begin(),_data.root_sha.end());
-        data.merkle_proof.insert(data.merkle_proof.end(),_data.merkle_proof.begin(),_data.merkle_proof.end());
-        data.merkle_proof_f.insert(data.merkle_proof_f.end(),_data.merkle_proof_f.begin(),_data.merkle_proof_f.end());
-        data.idx_f.insert(data.idx_f.end(),_data.idx_f.begin(),_data.idx_f.end());
-        data.output.insert(data.output.end(),_data.output.begin(),_data.output.end());
-        data.idx.insert(data.idx.end(),_data.idx.begin(),_data.idx.end());
+        if(_data.root.size() != 0){
+            data.root.insert(data.root.end(),_data.root.begin(),_data.root.end());
+        }
+        if(_data.root_sha.size() != 0){
+            data.root_sha.insert(data.root_sha.end(),_data.root_sha.begin(),_data.root_sha.end());
+        }
+        if(_data.merkle_proof.size() != 0){
+            data.merkle_proof.insert(data.merkle_proof.end(),_data.merkle_proof.begin(),_data.merkle_proof.end());
+        }
+        if(_data.merkle_proof_f.size() != 0){
+            data.merkle_proof_f.insert(data.merkle_proof_f.end(),_data.merkle_proof_f.begin(),_data.merkle_proof_f.end());
+        }
+        if(_data.idx_f.size() != 0){
+            data.idx_f.insert(data.idx_f.end(),_data.idx_f.begin(),_data.idx_f.end());
+        }
+        if(_data.output.size()){
+            data.output.insert(data.output.end(),_data.output.begin(),_data.output.end());
+        }
+        if(_data.idx.size()){
+            data.idx.insert(data.idx.end(),_data.idx.begin(),_data.idx.end());
+        }
     }
+    printf("OK1\n");
+        
     /// Comment out FOR A REAL IMPLEMENTATION
     for(int i = 0; i < QUERIES; i++){
         query(pos[i][0],pos[i][1],aggr_poly,dst,data);
@@ -528,7 +543,9 @@ aggregation_witness aggregate(vector<vector<vector<F>>> &encoded_matrixes, vecto
             }
         }
     }
-
+    
+    printf("aggr %lf, %lf\n",proving_time,(double)(end-begin)/(double)CLOCKS_PER_SEC);
+    
     data.trees = encoded_matrixes.size() +1;
     data.a = a;
     data.a.push_back(-F(1));

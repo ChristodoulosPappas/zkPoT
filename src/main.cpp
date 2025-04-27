@@ -45,7 +45,8 @@ vector<struct proof> Transcript;
 vector<struct proof> Opening_proof;
 vector<F> SHA;
 vector<F> H;
-int arity = 128;
+extern int in_size;
+int arity = 10;
 vector<F> x_transcript,y_transcript;
 F current_randomness;
 
@@ -169,6 +170,10 @@ vector<proof> mimc_sumcheck(vector<F> input){
 	vector<vector<F>> data(rounds);
 	vector<vector<F>> C_M(partitions);
 	vector<F> C = get_parameters();
+	
+	clock_t start,end;
+	start = clock();
+	
 	int counter = 0;
 	for(int i = 0; i < partitions; i++){
 		C_M[i].resize(rounds);
@@ -196,8 +201,6 @@ vector<proof> mimc_sumcheck(vector<F> input){
 	vector<F> v(data[0].size());
 	vector<proof> proofs;
 
-	clock_t start,end;
-	start = clock();
 	for(int i = rounds-2; i >= 0; i--){
 		
 		precompute_beta(x,beta);
@@ -227,6 +230,7 @@ vector<proof> mimc_sumcheck(vector<F> input){
 		// compute new sum
 	}
 	end = clock();
+	//printf("Hash prove time : %lf \n",(float)(end-start)/(float)CLOCKS_PER_SEC);
 	proving_time += (float)(end-start)/(float)CLOCKS_PER_SEC;
 	return proofs;
 
@@ -2056,6 +2060,8 @@ vector<int> get_sizes(struct convolutional_network net){
 void aggregate_commited_data(vector<vector<F>> polynomials, vector<vector<F>> old_polynomials){
 	vector<vector<vector<F>>> prev_poly(polynomials.size()),curr_poly(polynomials.size());
 	vector<vector<vector<F>>> x(polynomials.size());
+	clock_t t1,t2;
+	t1 = clock();
 	for(int i = 0;i < polynomials.size(); i++){
 		int log = (int)log2(polynomials[i].size());
 	
@@ -2082,6 +2088,8 @@ void aggregate_commited_data(vector<vector<F>> polynomials, vector<vector<F>> ol
 		prev_poly[i].clear();
 		curr_poly[i].clear();
 	}
+	t2 = clock();
+	printf("Aggr: %lf\n",(double)(t2-t1)/(double)CLOCKS_PER_SEC);	
 }
 
 vector<F> rotate(vector<F> bits, int shift){
@@ -2468,11 +2476,24 @@ void reduce_polynomials(vector<F> poly1, vector<F> poly2){
 }
 
 
+// FRI circuit inputs: 
+// K indexes
+// For each log N levels : 2K indexes
+// Total indexes: 2*(log N)K elements
+// Polynomial evaluations : 2*(log N)K  elements
+// Total index bits: 62*(2*(log N)K ) elements 
+// Powers of omega : 62 elements
+// Sizes of codewords : 62 elements
 
+// FRI Circuit structure:
+// Proves the well formedness of the indexes
+// Prove the correctness of bit decomposisions
+// Perform the exponantiations
+// Compute the polynomial evaluations 
 
 int main(int argc, char *argv[]){
 	
-	elliptic_curves_init();
+elliptic_curves_init();
 	init_hash();
     init_SHA();
 	PC_scheme = 2;
@@ -2816,8 +2837,8 @@ int main(int argc, char *argv[]){
 		//pr.push_back(verify_hashes(u_proof));
    	   	//printf("%d\n",get_transcript_size(pr));
 		//printf("Verification time : %lf\n", verify());
-   		printf("Proving verifier circuit : %lf\n",proving_time/(float)arity );
-		printf("Proving aggregation recursion circuit : %lf, Amortized : %lf\n",aggregation_time_recursion,aggregation_time_recursion/((float)arity) );
+   		//printf("Proving verifier circuit : %lf\n",proving_time/(float)arity );
+		//printf("Proving aggregation recursion circuit : %lf, Amortized : %lf\n",aggregation_time_recursion,aggregation_time_recursion/((float)arity) );
 		printf("Total Recursion P : %lf, Amortized : %lf\n",aggregation_time_recursion+proving_time,(aggregation_time_recursion+proving_time)/((float)arity) );
 		printf("Total Aggregation time : %lf, Amortized : %lf\n", aggregation_time,aggregation_time/((float)arity));
 	   	printf("Commitment time : %lf\n", commitment_time);
@@ -2825,5 +2846,6 @@ int main(int argc, char *argv[]){
 		//printf("Witness size (bits) : %d, Commit PoGD : %d,  Commit Verifier Circuit :  %d \n",sizes[0],sizes[1]+sizes[2]+partitions*Batch*input_dim*input_dim,sizes[3] );
 
 
+	
 	return 0;
 }

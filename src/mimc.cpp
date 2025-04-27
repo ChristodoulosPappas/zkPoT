@@ -17,7 +17,7 @@ vector<F> Common;
 F K_MIMC;
 
 void init_hash(){
-	partitions = 8;
+	partitions = 4;
 	
 	Common.resize(ROUNDS);
 	for(int i = 0; i < ROUNDS; i++){

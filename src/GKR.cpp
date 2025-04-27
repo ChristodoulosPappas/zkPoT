@@ -11,7 +11,7 @@ using std::max;
 #define Clients 2
 #define Len 8
 extern int partitions;
-
+int in_size;
 vector<DAG_gate *> in_circuit_dag;
 vector<vector<DAG_gate *>> ip_circuit_dag;
 
@@ -242,6 +242,7 @@ void parse_sha256(ifstream &circuit_in, long long int *in,  int instances);
 void parse_verification_circuit( vector<vector<int>> transcript);
 void parse_input_commit(int batch, int N);
 
+void parse_fri(ifstream &circuit_in,long long int *in, int repeats, int log_size);
 
 void parse_check_correctness(int N, int size);
 void parse_lookup_product(int N);
@@ -249,6 +250,84 @@ void parse_division(int N, int size);
 void parse_lookup_table(int batch, int out);
 void parse_merkle_proof_consistency(ifstream &circuit_in,long long int *in, int instances, int proof_size, int trees);
 void parse_test(ifstream &circuit_in,long long int *in, int N);
+void parse_recursion_circuit(ifstream &circuit_in,long long int *in, int repeats, int log_size, int polynomials);
+void parse_recursion_circuit_with_lookups(ifstream &circuit_in,long long int *in, int repeats, int log_size, int polynomials);
+
+struct proof prove_recursion_with_lookups(vector<F> &data, vector<F> randomness, int repeats, int log_size, int polynomials){
+    layeredCircuit c;
+    char *input_file,*circuit_name;
+    long long int *in;
+    
+
+    in = (long long int *)malloc(16*sizeof(long long int));
+    for(int i = 0; i < 16; i++){
+        in[i] = i;
+    }
+
+    ifstream circuit_in;
+    in_circuit_dag.clear();
+    parse_recursion_circuit_with_lookups(circuit_in,in,repeats, log_size, polynomials);
+    c = DAG_to_layered();
+    
+    c.subsetInit(); 
+    prover p(c,input_file,data,false);
+
+    verifier v(&p, c);
+    struct proof Pr = v.verify(randomness);
+    return Pr;
+}
+
+
+struct proof prove_recursion(vector<F> &data, vector<F> randomness, int repeats, int log_size, int polynomials){
+    layeredCircuit c;
+    char *input_file,*circuit_name;
+    long long int *in;
+    
+
+    in = (long long int *)malloc(16*sizeof(long long int));
+    for(int i = 0; i < 16; i++){
+        in[i] = i;
+    }
+
+    ifstream circuit_in;
+    in_circuit_dag.clear();
+    parse_recursion_circuit(circuit_in,in,repeats, log_size, polynomials);
+    c = DAG_to_layered();
+    
+    c.subsetInit(); 
+    prover p(c,input_file,data,false);
+
+    verifier v(&p, c);
+    struct proof Pr = v.verify(randomness);
+    return Pr;
+}
+
+
+struct proof prove_fri(vector<F> &data, vector<F> randomness, int repeats, int log_size){
+    layeredCircuit c;
+    char *input_file,*circuit_name;
+    long long int *in;
+    
+
+    in = (long long int *)malloc(16*sizeof(long long int));
+    for(int i = 0; i < 16; i++){
+        in[i] = i;
+    }
+
+    ifstream circuit_in;
+    in_circuit_dag.clear();
+    parse_fri(circuit_in,in,repeats, log_size);
+    c = DAG_to_layered();
+    
+    c.subsetInit(); 
+    prover p(c,input_file,data,false);
+
+    //printf("Prover initialized\n");
+    verifier v(&p, c);
+    //ip_circuit_dag.clear();
+    struct proof Pr = v.verify(randomness);
+    return Pr;
+}
 
 struct proof prove_merkle_proof_consistency(vector<F> &data, vector<F> randomness,   int instances, int proof_size, int trees ){
     layeredCircuit c;
@@ -2851,6 +2930,741 @@ void xor_shift(vector<int> pow,vector<int> w1,vector<int> w2,vector<int> w3,int 
     //add_tree(prod,counter);
     ip(xored_word,pow,counter);
 }
+
+
+
+void parse_recursion_circuit_with_lookups(ifstream &circuit_in,long long int *in, int repeats, int log_size, int polynomials){
+    int counter = 0;
+    int input_size = 0; 
+    int bits_count = 0;
+    for(int ii = 0; ii < 2; ii++){
+        // INITIALIZE INPUT
+        vector<int> rand(log_size);
+        vector<int> initial_random_indexes(repeats);
+        vector<vector<int>> indexes(log_size-8);
+        for(int i = 0; i < log_size-8; i++){
+            indexes[i].resize(2*repeats);
+        }
+        vector<vector<int>> quotients(log_size-8);
+        vector<vector<int>> indexes_counter(log_size-8);
+        vector<vector<int>> quotient_counter(log_size-8);
+        // You can make the log size instead of 62
+        for(int i = 0; i < log_size-8; i++){
+            indexes_counter[i].resize(repeats);
+            quotient_counter[i].resize(repeats);
+            quotients[i].resize(repeats);
+        }
+        /*
+        for(int i = 0; i < log_size; i++){
+            indexes_bits[i].resize(repeats);
+            quotient_bits[i].resize(repeats);
+            remainder_bits[i].resize(repeats);
+            quotients[i].resize(repeats);
+            for(int j = 0; j < repeats; j++){
+                indexes_bits[i][j].resize(log_size);
+                quotient_bits[i][j].resize(log_size);
+                remainder_bits[i][j].resize(log_size);
+                bits_count += 3*log_size;
+            }
+        }
+        */
+        vector<int> omega_powers(log_size);
+        vector<vector<int>> evaluations(log_size-8);
+        for(int i = 0; i  <log_size-8; i++){
+            evaluations[i].resize(2*repeats);
+        }
+        vector<int> lengths(log_size);
+        // Compute the z's
+        vector<vector<int>> z(log_size-8);
+        
+        vector<vector<int>> z_inv(log_size-8);
+        for(int i = 0; i < log_size-8; i++){
+            z[i].resize(repeats);
+            z_inv[i].resize(repeats);    
+        }
+        vector<int> pows_two(log_size);
+        int one,two_inv;
+        // ******************* //
+        // FORM INPUT
+        // 1)
+        for(int i = 0; i < log_size-8; i++){
+            for(int j = 0; j < 2*repeats; j++){
+                buildInput(counter, 0);
+                indexes[i][j] = (counter);
+                counter++;   
+            }
+        }
+        for(int i = 0; i < log_size-8; i++){
+            for(int j = 0; j < repeats; j++){
+                buildInput(counter, 0);
+                quotients[i][j] = counter++;
+            }
+        }
+        
+        // 2)
+        for(int i = 0; i < log_size-8; i++){
+            for(int j = 0; j < repeats; j++){
+                buildInput(counter, 0);
+                indexes_counter[i][j] = counter;
+                counter++;   
+                buildInput(counter, 0);
+                quotient_counter[i][j] = counter;
+                counter++;
+            }
+        }
+        // 3)
+        for(int i = 0; i < log_size-8; i++){
+            for(int j = 0; j < 2*repeats; j++){
+                buildInput(counter, 0);
+                evaluations[i][j] = counter;
+                counter++;
+            }
+        }
+        // 4)
+        for(int i = 0; i < omega_powers.size(); i++){
+            buildInput(counter, 0);
+            omega_powers[i] = counter;
+            counter++;        
+        }
+        // 5)
+        for(int i = 0; i < z.size(); i++){
+            for(int j = 0; j < z[i].size(); j++){
+                buildInput(counter, 0);    
+                z[i][j] = counter;
+                counter++;
+            }
+        }
+        for(int i = 0; i < z_inv.size(); i++){
+            for(int j = 0; j < z_inv[i].size(); j++){
+                buildInput(counter, 0);    
+                z_inv[i][j] = counter;
+                counter++;
+            }
+        }
+        
+        // 6)
+        for(int i = 0 ; i < lengths.size(); i++){
+            buildInput(counter, 0);        
+            lengths[i] = counter;
+            counter++;
+        }
+        // 7)
+        for(int i = 0; i < pows_two.size(); i++){
+            buildInput(counter, 0);        
+            pows_two[i] = counter;
+            counter++;
+        }
+        // 8)
+        for(int i = 0; i < rand.size(); i++){
+            buildInput(counter, 0);        
+            rand[i] = counter;
+            counter++;
+        }
+        // 9)
+        for(int i = 0; i < initial_random_indexes.size(); i++){
+            buildInput(counter,0);
+            initial_random_indexes[i] = counter++;
+        }
+        // 10)
+        buildInput(counter, 0);        
+        one = counter++;
+        buildInput(counter, 0);        
+        two_inv = counter++;
+        if(ii == 0){
+            input_size = 2*counter;
+            printf(">> Input size: %d\n",input_size);
+        }
+
+        // ******************* //
+        // FORM CIRCUIT
+        // Check index consistency
+    
+        for(int i = 0; i < log_size-8; i++){
+            for(int j = 0; j < repeats; j++){
+                add(indexes[i][2*j],lengths[i],counter);
+                sub(indexes[i][2*j+1], counter-1,counter);
+            }
+        }
+    
+        for(int i = 0; i < log_size-8; i++){
+            vector<int> buff_read(repeats);
+            vector<int> buff_write(repeats);
+            for(int j = 0; j < repeats; j++){
+                mul(indexes_counter[i][j],rand[0],counter);
+                mul(z[i][j],rand[1],counter);
+                mul(indexes[i][j],rand[1],counter);
+                add(counter-3,counter-2,counter);
+                add(counter-2,counter-1,counter);
+                buff_read[j] = counter-1;
+                add(counter-1,rand[0],counter);
+                buff_write[j] = counter-1;
+                //mul_tree(buff,counter);
+                //z[i].push_back(counter-1);    
+            }
+            mul_tree(buff_read,counter);
+            mul_tree(buff_write,counter);
+            for(int j = 0; j < repeats; j++){
+                mul(z[i][j],z_inv[i][j],counter);
+            }
+        }
+        // Check if f(z) = g(z) + zh(z) and f(-z) = g(z) - zh(z)
+        vector<vector<int>> evals(log_size-1);
+        for(int i = 0; i < log_size-1-8; i++){
+            for(int j = 0; j < repeats; j++){
+                sub(evaluations[i][2*j],evaluations[i][2*j+1],counter);
+                mul(counter-1,z_inv[i][j],counter);
+                mul(rand[i],counter-1,counter);
+                add(evaluations[i][2*j],evaluations[i][2*j+1],counter);
+                mul(counter-1,two_inv,counter);
+                add(counter-1,counter-3,counter);
+                evals[i].push_back(counter-1);
+            }
+        }
+        for(int i = 1; i < log_size-8; i++){
+            for(int j = 0; j < repeats; j++){
+                sub(evals[i-1][j],evaluations[i][2*j],counter);
+            }
+        }
+        
+       
+        for(int i = 0; i < indexes_counter.size(); i++){
+            vector<int> buff1_read(repeats);
+            vector<int> buff1_write(repeats);
+            vector<int> buff2_read(repeats);
+            vector<int> buff2_write(repeats);
+            
+            for(int j = 0; j < repeats; j++){
+                mul(rand[0],indexes_counter[i][j],counter);
+                mul(rand[1],indexes[i][j],counter);
+                add(counter-1,counter-2,counter);
+                buff1_read[j] = counter;
+                add(rand[0],counter-1,counter);
+                buff1_write[j] = counter;
+            }
+            for(int j = 0; j < repeats; j++){
+                mul(rand[0],quotient_counter[i][j],counter);
+                mul(rand[1],quotients[i][j],counter);
+                add(counter-1,counter-2,counter);
+                buff2_read[j] = counter;
+                add(rand[0],counter-1,counter);
+                buff2_write[j] = counter;
+            }
+            mul_tree(buff1_read,counter);
+            mul_tree(buff2_read,counter);
+            mul_tree(buff1_write,counter);
+            mul_tree(buff2_write,counter);
+        }
+    }
+    printf("FRI circuit : %d\n",counter);
+    //void eval_quadratic_poly(vector<int> coef, int x, int &counter){
+
+
+    vector<vector<int>> coefs(polynomials);
+    vector<int> r(polynomials);
+    for(int i = 0; i < polynomials; i++){
+        for(int j = 0; j < 3; j++){
+            buildInput(counter, 0);
+            coefs[i].push_back(counter);
+            counter++;
+        }
+    }
+    for(int i = 0; i < polynomials; i++){
+        buildInput(counter, 0);
+        r[i] = counter++;
+    }
+    //input_size += 4*polynomials;
+    
+    vector<int> polynomial_evaluations(polynomials);
+    for(int i = 0; i < polynomials; i++){
+        eval_quadratic_poly(coefs[i], r[i], counter);
+        polynomial_evaluations[i] = counter-1;
+    }
+    for(int i = 0; i < polynomials; i++){
+        add(coefs[i][0],coefs[i][0],counter);
+        add(coefs[i][1],coefs[i][2],counter);
+        add(counter-1,counter-2,counter);
+        sub(counter-1,polynomial_evaluations[i],counter);
+    }
+    in_size = input_size;
+    //printf("Input : %d\n",input_size);
+    printf("Total circuit : %d\n",counter);
+}
+
+
+void parse_recursion_circuit(ifstream &circuit_in,long long int *in, int repeats, int log_size, int polynomials){
+    int counter = 0;
+    int input_size = 0; 
+    int bits_count = 0;
+    for(int ii = 0; ii < 2; ii++){
+        // INITIALIZE INPUT
+        vector<int> rand(log_size);
+        vector<int> initial_random_indexes(repeats);
+        vector<vector<int>> indexes(log_size);
+        for(int i = 0; i < log_size; i++){
+            indexes[i].resize(2*repeats);
+        }
+        vector<vector<int>> quotients(log_size);
+        vector<vector<vector<int>>> indexes_bits(log_size);
+        vector<vector<vector<int>>> quotient_bits(log_size);
+        vector<vector<vector<int>>> remainder_bits(log_size);
+        // You can make the log size instead of 62
+        for(int i = 0; i < log_size; i++){
+            indexes_bits[i].resize(repeats);
+            quotient_bits[i].resize(repeats);
+            remainder_bits[i].resize(repeats);
+            quotients[i].resize(repeats);
+            for(int j = 0; j < repeats; j++){
+                indexes_bits[i][j].resize(log_size-i);
+                quotient_bits[i][j].resize(log_size-i);
+                remainder_bits[i][j].resize(log_size-i);
+                bits_count += 3*(log_size-i);
+            }
+        }
+        /*
+        for(int i = 0; i < log_size; i++){
+            indexes_bits[i].resize(repeats);
+            quotient_bits[i].resize(repeats);
+            remainder_bits[i].resize(repeats);
+            quotients[i].resize(repeats);
+            for(int j = 0; j < repeats; j++){
+                indexes_bits[i][j].resize(log_size);
+                quotient_bits[i][j].resize(log_size);
+                remainder_bits[i][j].resize(log_size);
+                bits_count += 3*log_size;
+            }
+        }
+        */
+        vector<int> omega_powers(log_size);
+        vector<vector<int>> evaluations(log_size);
+        for(int i = 0; i  <log_size; i++){
+            evaluations[i].resize(2*repeats);
+        }
+        vector<int> lengths(log_size);
+        vector<vector<int>> z_inv(log_size);
+        for(int i = 0; i < log_size; i++){
+            z_inv[i].resize(repeats);    
+        }
+        vector<int> pows_two(log_size);
+        int one,two_inv;
+        // ******************* //
+        // FORM INPUT
+        // 1)
+        for(int i = 0; i < log_size; i++){
+            for(int j = 0; j < 2*repeats; j++){
+                buildInput(counter, 0);
+                indexes[i][j] = (counter);
+                counter++;   
+            }
+        }
+        for(int i = 0; i < log_size; i++){
+            for(int j = 0; j < repeats; j++){
+                buildInput(counter, 0);
+                quotients[i][j] = counter++;
+            }
+        }
+        // 2)
+        for(int i = 0; i < log_size; i++){
+            for(int j = 0; j < repeats; j++){
+                for(int k = 0; k < log_size-i; k++){
+                //for(int k = 0; k < log_size; k++){
+                    buildInput(counter, 0);
+                    indexes_bits[i][j][k] = counter;
+                    counter++;   
+                    buildInput(counter, 0);
+                    quotient_bits[i][j][k] = counter;
+                    counter++;
+                    buildInput(counter, 0);
+                    remainder_bits[i][j][k] = counter;
+                    counter++;
+                }
+            }
+        }
+        // 3)
+        for(int i = 0; i < log_size; i++){
+            for(int j = 0; j < 2*repeats; j++){
+                buildInput(counter, 0);
+                evaluations[i][j] = counter;
+                counter++;
+            }
+        }
+        // 4)
+        for(int i = 0; i < omega_powers.size(); i++){
+            buildInput(counter, 0);
+            omega_powers[i] = counter;
+            counter++;        
+        }
+        // 5)
+        for(int i = 0; i < z_inv.size(); i++){
+            for(int j = 0; j < z_inv[i].size(); j++){
+                buildInput(counter, 0);    
+                z_inv[i][j] = counter;
+                counter++;
+            }
+        }
+        
+        // 6)
+        for(int i = 0 ; i < lengths.size(); i++){
+            buildInput(counter, 0);        
+            lengths[i] = counter;
+            counter++;
+        }
+        // 7)
+        for(int i = 0; i < pows_two.size(); i++){
+            buildInput(counter, 0);        
+            pows_two[i] = counter;
+            counter++;
+        }
+        // 8)
+        for(int i = 0; i < rand.size(); i++){
+            buildInput(counter, 0);        
+            rand[i] = counter;
+            counter++;
+        }
+        // 9)
+        for(int i = 0; i < initial_random_indexes.size(); i++){
+            buildInput(counter,0);
+            initial_random_indexes[i] = counter++;
+        }
+        // 10)
+        buildInput(counter, 0);        
+        one = counter++;
+        buildInput(counter, 0);        
+        two_inv = counter++;
+        if(ii == 0){
+            input_size = 2*counter;
+            //printf(">> %d,%d\n",counter,bits_count);
+        }
+        // ******************* //
+        // FORM CIRCUIT
+        // Check index consistency
+    
+        for(int i = 0; i < log_size; i++){
+            for(int j = 0; j < repeats; j++){
+                add(indexes[i][2*j],lengths[i],counter);
+                sub(indexes[i][2*j+1], counter-1,counter);
+            }
+        }
+    
+        // Compute the z's
+        vector<vector<int>> z(log_size);
+        for(int i = 0; i < log_size; i++){
+            for(int j = 0; j < repeats; j++){
+                vector<int> buff;
+                for(int k = 0; k < log_size-i; k++){
+                //for(int k = 0; k < log_size; k++){
+                    mul(indexes_bits[i][j][k],omega_powers[k],counter);
+                    buff.push_back(counter-1);
+                }
+                mul_tree(buff,counter);
+                z[i].push_back(counter-1);    
+            }
+            for(int j = 0; j < repeats; j++){
+                mul(z[i][j],z_inv[i][j],counter);
+            }
+        }
+        // Check if f(z) = g(z) + zh(z) and f(-z) = g(z) - zh(z)
+        vector<vector<int>> evals(log_size-1);
+        for(int i = 0; i < log_size-1; i++){
+            for(int j = 0; j < repeats; j++){
+                sub(evaluations[i][2*j],evaluations[i][2*j+1],counter);
+                mul(counter-1,z_inv[i][j],counter);
+                mul(rand[i],counter-1,counter);
+                add(evaluations[i][2*j],evaluations[i][2*j+1],counter);
+                mul(counter-1,two_inv,counter);
+                add(counter-1,counter-3,counter);
+                evals[i].push_back(counter-1);
+            }
+        }
+        for(int i = 1; i < log_size; i++){
+            for(int j = 0; j < repeats; j++){
+                sub(evals[i-1][j],evaluations[i][2*j],counter);
+            }
+        }
+        
+        // validate correctness of bit decomposition
+        for(int i = 0; i < indexes_bits.size(); i++){
+            for(int j = 0; j < indexes_bits[i].size(); j++){
+                for(int k = 0; k < indexes_bits[i][j].size(); k++){
+                    sub(one,indexes_bits[i][j][k],counter);
+                    mul(indexes_bits[i][j][k],counter-1,counter);
+
+                    sub(one,quotient_bits[i][j][k],counter);
+                    mul(quotient_bits[i][j][k],counter-1,counter);
+        
+                    sub(one,remainder_bits[i][j][k],counter);
+                    mul(remainder_bits[i][j][k],counter-1,counter);
+        
+                }
+            }
+        }
+        for(int i = 0; i < indexes_bits.size(); i++){
+            vector<int> buff(log_size-i);
+            for(int j = 0; j < buff.size(); j++){
+                buff[j] = pows_two[j];
+            }
+            for(int j = 0; j < indexes_bits[i].size(); j++){
+                ip(buff,indexes_bits[i][j],counter);
+                sub(counter-1, indexes[i][2*j], counter);
+
+                if(i == 0){
+                    sub(initial_random_indexes[j],quotients[i][j],counter);
+                    ip(buff,quotient_bits[i][j],counter);
+                    sub(counter-1,counter-2,counter);
+                }
+                else{
+                    sub(indexes[i-1][2*j],quotients[i][j],counter);
+                    ip(buff,quotient_bits[i][j],counter);
+                    sub(counter-1,counter-2,counter);                
+                }
+            }
+        }
+    }
+    printf("FRI circuit : %d\n",counter);
+    //void eval_quadratic_poly(vector<int> coef, int x, int &counter){
+
+
+    vector<vector<int>> coefs(polynomials);
+    vector<int> r(polynomials);
+    for(int i = 0; i < polynomials; i++){
+        for(int j = 0; j < 3; j++){
+            buildInput(counter, 0);
+            coefs[i].push_back(counter);
+            counter++;
+        }
+    }
+    for(int i = 0; i < polynomials; i++){
+        buildInput(counter, 0);
+        r[i] = counter++;
+    }
+    input_size += 4*polynomials;
+    
+    vector<int> polynomial_evaluations(polynomials);
+    for(int i = 0; i < polynomials; i++){
+        eval_quadratic_poly(coefs[i], r[i], counter);
+        polynomial_evaluations[i] = counter-1;
+    }
+    for(int i = 0; i < polynomials; i++){
+        add(coefs[i][0],coefs[i][0],counter);
+        add(coefs[i][1],coefs[i][2],counter);
+        add(counter-1,counter-2,counter);
+        sub(counter-1,polynomial_evaluations[i],counter);
+    }
+    in_size = input_size;
+    //printf("Input : %d\n",input_size);
+    printf("Total circuit : %d\n",counter);
+}
+
+void parse_fri(ifstream &circuit_in,long long int *in, int repeats, int log_size){
+    int counter = 0;
+
+    // INITIALIZE INPUT
+    vector<int> rand(log_size);
+    vector<int> initial_random_indexes(repeats);
+    vector<vector<int>> indexes(log_size);
+    for(int i = 0; i < log_size; i++){
+        indexes[i].resize(2*repeats);
+    }
+    vector<vector<int>> quotients(log_size);
+    vector<vector<vector<int>>> indexes_bits(log_size);
+    vector<vector<vector<int>>> quotient_bits(log_size);
+    vector<vector<vector<int>>> remainder_bits(log_size);
+    // You can make the log size instead of 62
+    for(int i = 0; i < log_size; i++){
+        indexes_bits[i].resize(repeats);
+        quotient_bits[i].resize(repeats);
+        remainder_bits[i].resize(repeats);
+        quotients[i].resize(repeats);
+        for(int j = 0; j < repeats; j++){
+            indexes_bits[i][j].resize(log_size);
+            quotient_bits[i][j].resize(log_size);
+            remainder_bits[i][j].resize(log_size);
+        }
+    }
+    vector<int> omega_powers(log_size);
+    vector<vector<int>> evaluations(log_size);
+    for(int i = 0; i  <log_size; i++){
+        evaluations[i].resize(2*repeats);
+    }
+    vector<int> lengths(log_size);
+    vector<vector<int>> z_inv(log_size);
+    for(int i = 0; i < log_size; i++){
+        z_inv[i].resize(repeats);    
+    }
+    vector<int> pows_two(log_size);
+    int one,two_inv;
+    // ******************* //
+    // FORM INPUT
+    // 1)
+    for(int i = 0; i < log_size; i++){
+        for(int j = 0; j < 2*repeats; j++){
+            buildInput(counter, 0);
+            indexes[i][j] = (counter);
+            counter++;   
+        }
+    }
+    for(int i = 0; i < log_size; i++){
+        for(int j = 0; j < repeats; j++){
+            buildInput(counter, 0);
+            quotients[i][j] = counter++;
+        }
+    }
+    // 2)
+    for(int i = 0; i < log_size; i++){
+        for(int j = 0; j < repeats; j++){
+            for(int k = 0; k < log_size; k++){
+                buildInput(counter, 0);
+                indexes_bits[i][j][k] = counter;
+                counter++;   
+                buildInput(counter, 0);
+                quotient_bits[i][j][k] = counter;
+                counter++;
+                buildInput(counter, 0);
+                remainder_bits[i][j][k] = counter;
+                counter++;
+            }
+        }
+    }
+    // 3)
+    for(int i = 0; i < log_size; i++){
+        for(int j = 0; j < 2*repeats; j++){
+            buildInput(counter, 0);
+            evaluations[i][j] = counter;
+            counter++;
+        }
+    }
+    // 4)
+    for(int i = 0; i < omega_powers.size(); i++){
+        buildInput(counter, 0);
+        omega_powers[i] = counter;
+        counter++;        
+    }
+    // 5)
+    for(int i = 0; i < z_inv.size(); i++){
+        for(int j = 0; j < z_inv[i].size(); j++){
+            buildInput(counter, 0);    
+            z_inv[i][j] = counter;
+            counter++;
+        }
+    }
+    printf("OK 5\n");
+    
+    // 6)
+    for(int i = 0 ; i < lengths.size(); i++){
+        buildInput(counter, 0);        
+        lengths[i] = counter;
+        counter++;
+    }
+    // 7)
+    for(int i = 0; i < pows_two.size(); i++){
+        buildInput(counter, 0);        
+        pows_two[i] = counter;
+        counter++;
+    }
+    // 8)
+    for(int i = 0; i < rand.size(); i++){
+        buildInput(counter, 0);        
+        rand[i] = counter;
+        counter++;
+    }
+    // 9)
+    for(int i = 0; i < initial_random_indexes.size(); i++){
+        buildInput(counter,0);
+        initial_random_indexes[i] = counter++;
+    }
+    // 10)
+    buildInput(counter, 0);        
+    one = counter++;
+    buildInput(counter, 0);        
+    two_inv = counter++;
+    printf("Input : %d\n",counter);
+
+    // ******************* //
+    // FORM CIRCUIT
+    // Check index consistency
+   
+    for(int i = 0; i < log_size; i++){
+        for(int j = 0; j < repeats; j++){
+            add(indexes[i][2*j],lengths[i],counter);
+            sub(indexes[i][2*j+1], counter-1,counter);
+        }
+    }
+   
+    // Compute the z's
+    vector<vector<int>> z(log_size);
+    for(int i = 0; i < log_size; i++){
+        for(int j = 0; j < repeats; j++){
+            vector<int> buff;
+            for(int k = 0; k < log_size; k++){
+                mul(indexes_bits[i][j][k],omega_powers[k],counter);
+                buff.push_back(counter-1);
+            }
+            mul_tree(buff,counter);
+            z[i].push_back(counter-1);    
+        }
+        for(int j = 0; j < repeats; j++){
+            mul(z[i][j],z_inv[i][j],counter);
+        }
+    }
+    // Check if f(z) = g(z) + zh(z) and f(-z) = g(z) - zh(z)
+    vector<vector<int>> evals(log_size-1);
+    for(int i = 0; i < log_size-1; i++){
+        for(int j = 0; j < repeats; j++){
+            sub(evaluations[i][2*j],evaluations[i][2*j+1],counter);
+            mul(counter-1,z_inv[i][j],counter);
+            mul(rand[i],counter-1,counter);
+            add(evaluations[i][2*j],evaluations[i][2*j+1],counter);
+            mul(counter-1,two_inv,counter);
+            add(counter-1,counter-3,counter);
+            evals[i].push_back(counter-1);
+        }
+    }
+    for(int i = 1; i < log_size; i++){
+        for(int j = 0; j < repeats; j++){
+            sub(evals[i-1][j],evaluations[i][2*j],counter);
+        }
+    }
+    
+    // validate correctness of bit decomposition
+    for(int i = 0; i < indexes_bits.size(); i++){
+        for(int j = 0; j < indexes_bits[i].size(); j++){
+            for(int k = 0; k < indexes_bits[i][j].size(); k++){
+                sub(one,indexes_bits[i][j][k],counter);
+                mul(indexes_bits[i][j][k],counter-1,counter);
+
+                sub(one,quotient_bits[i][j][k],counter);
+                mul(quotient_bits[i][j][k],counter-1,counter);
+    
+                sub(one,remainder_bits[i][j][k],counter);
+                mul(remainder_bits[i][j][k],counter-1,counter);
+    
+            }
+        }
+    }
+    for(int i = 0; i < indexes_bits.size(); i++){
+        for(int j = 0; j < indexes_bits[i].size(); j++){
+            ip(pows_two,indexes_bits[i][j],counter);
+            sub(counter-1, indexes[i][2*j], counter);
+
+            if(i == 0){
+                sub(initial_random_indexes[j],quotients[i][j],counter);
+                ip(pows_two,quotient_bits[i][j],counter);
+                sub(counter-1,counter-2,counter);
+            }
+            else{
+                sub(indexes[i-1][2*j],quotients[i][j],counter);
+                ip(pows_two,quotient_bits[i][j],counter);
+                sub(counter-1,counter-2,counter);                
+            }
+        }
+    }
+
+    printf("Total circuit : %d\n",counter);
+}
+
+
+
+
+
 
 void parse_merkle_proof_consistency(ifstream &circuit_in,long long int *in, int instances, int proof_size, int trees){
     int proofs = instances/proof_size;

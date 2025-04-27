@@ -312,6 +312,21 @@ vector<F> prepare_bit_vector(vector<F> num, int domain){
     return bits;
 }
 
+
+F getRootofUnity(int logn){
+    // Get root of unity
+    F rou;
+    rou.img = 1033321771269002680L;
+    rou.real = 2147483648L;
+
+    //assert(log_order <= 61);
+
+    for (int i = 0; i < 62 - logn; ++i)
+        rou = rou * rou;
+
+    return rou;
+}
+
 void fft(vector<F> &arr, int logn, bool flag) {
 //    cerr << "fft: " << endl;
 //    for (auto x: arr) cerr << x << ' ';
@@ -728,6 +743,27 @@ void clear_tensor3(vector<vector<vector<vector<vector<F>>>>> &arr){
     }
     vector<vector<vector<vector<vector<F>>>>>().swap(arr);
     arr.clear();
+}
+
+vector<F> compute_lagrange_coeff(F omega, F r, int degree){
+	vector<F> pows;
     
- 
+    vector<F> L1(degree);
+	F A; A.fastPow(r,degree);
+	A = A-F(1);
+    
+    pows.push_back(F(1));
+	for(int i = 1; i < degree; i++){
+		F num = pows[i-1]*omega;
+		if(num == F(1)){
+			break;
+		}
+		pows.push_back(num);
+	}
+	for(int i = 0; i < pows.size(); i++){
+		F temp = F(degree)*(r-pows[i]);
+		temp.inv();//.inv(temp,temp);
+		L1[i] = temp*A*pows[i];
+	}	
+	return L1;
 }

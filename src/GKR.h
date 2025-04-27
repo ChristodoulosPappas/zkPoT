@@ -111,3 +111,6 @@ struct proof prove_bulletproof_verifier(vector<F> &data, vector<F> randomness,in
 struct proof prove_sha256(vector<F> &data, vector<F> randomness, int instances);
 struct proof prove_merkle_proof_consistency(vector<F> &data, vector<F> randomness,   int instances, int proof_size, int trees );
 struct proof test(vector<F> &data, vector<F> randomness,int size);
+struct proof prove_fri(vector<F> &data, vector<F> randomness, int repeats, int log_size);
+struct proof prove_recursion(vector<F> &data, vector<F> randomness, int repeats, int log_size, int polynomials);
+struct proof prove_recursion_with_lookups(vector<F> &data, vector<F> randomness, int repeats, int log_size, int polynomials);
